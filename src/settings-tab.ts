@@ -5,6 +5,7 @@ import {
 	setIcon,
 } from "obsidian";
 import MeetingsPlusPlugin from "./main";
+import { MAX_LOOK_BACK_DAYS } from "./constants";
 import { DEFAULT_SETTINGS, makeDefaultCalendar } from "./settings";
 import { TimeFormat } from "./types";
 import { CalendarEditorModal } from "./ui/calendar-editor-modal";
@@ -67,10 +68,10 @@ export class MeetingsPlusSettingTab extends PluginSettingTab {
 		);
 		this.numberField(
 			"Look-back window (days)",
-			"How many days of past meetings you can navigate back to. Set to 0 to disable.",
+			"How many days of past meetings you can browse (up to 365). Set to 0 to disable. Some calendars, such as Outlook published links, only include recent history.",
 			"lookBackDays",
 			0,
-			30
+			MAX_LOOK_BACK_DAYS
 		);
 		this.toggle(
 			"Enable pre-meeting notifications",
@@ -92,6 +93,20 @@ export class MeetingsPlusSettingTab extends PluginSettingTab {
 			"Reveal the sidebar when Obsidian starts.",
 			"openDashboardOnStart"
 		);
+		new Setting(containerEl)
+			.setName("Hide section markers in the editor")
+			.setDesc(
+				"Hide the markers around daily-note meeting sections while editing. They stay in the file; Reading view always hides them."
+			)
+			.addToggle((t) =>
+				t
+					.setValue(this.plugin.settings.hideSectionMarkers)
+					.onChange(async (v) => {
+						this.plugin.settings.hideSectionMarkers = v;
+						await this.plugin.saveSettings();
+						this.app.workspace.updateOptions();
+					})
+			);
 
 		new Setting(containerEl).setName("Calendars").setHeading();
 

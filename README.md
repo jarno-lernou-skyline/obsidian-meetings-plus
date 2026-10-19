@@ -27,7 +27,7 @@ Meetings Plus subscribes to the calendar you already use (Outlook, Google, iClou
 - Subscribe to one or more **ICS calendar feeds** (Outlook, Google, iCloud, Proton, Fastmail — any standards-compliant ICS source)
 - Today's meetings appear in a sidebar, sorted by time
 - **Multi-day agenda**: flat per-day list with empty days collapsed into a one-line "N days without events" hint. Jump to any future date with the built-in date picker; quick-set how many days to show from the sidebar header
-- **Catch up on past meetings**: navigate back up to 30 days (configurable, off by setting 0) and click a past meeting to write up its note after the fact — handy for transposing paper notes
+- **Catch up on past meetings**: navigate back up to 365 days (configurable, off by setting 0) and click a past meeting to write up its note after the fact — handy for transposing paper notes
 - **One click on a meeting → fully pre-filled meeting note** in your configured folder, with attendees, time, location, agenda — ready to take notes
 - **Already prepared?** The sidebar shows which meetings already have notes; clicking opens the existing one
 - Optional **pre-meeting notifications** with a configurable lead time
@@ -104,20 +104,70 @@ Each calendar has its own editable template. Variables are written as `{{name}}`
 | `{{date}}` | Meeting date in `YYYY-MM-DD` |
 | `{{start}}`, `{{start:HH:mm}}` | Start datetime |
 | `{{end}}`, `{{end:HH:mm}}` | End datetime |
+| `{{end_date}}` | Last day the event covers (all-day `DTEND` is exclusive, so this is the day you expect) |
 | `{{duration}}` | Duration in minutes |
+| `{{duration_hm}}` | Duration as `1h 30m` |
+| `{{all_day}}` | `true` / `false` |
+| `{{timezone}}` | Timezone the event was authored in, e.g. `Europe/Berlin` |
 | `{{location}}` | Location string |
-| `{{meeting_url}}` | First detected meeting URL |
+| `{{geo}}`, `{{geo_url}}` | `GEO` coordinates, and an OpenStreetMap link to them |
+| `{{meeting_url}}` | Best meeting link found (see below) |
+| `{{conference_url}}` | RFC 7986 `CONFERENCE` URI (Google Meet, Teams, Zoom) |
+| `{{event_url}}` | The event's `URL` property |
 | `{{description}}` | Full description, stripped of HTML |
-| `{{organizer}}` | Organizer name |
+| `{{organizer}}`, `{{organizer_email}}` | Organizer display name and address |
 | `{{attendees}}` | Comma-separated attendee names |
 | `{{attendees_list}}` | Bulleted list of attendees |
 | `{{attendees_wikilinks}}` | Comma-separated `[[Name]]` wikilinks |
+| `{{attendees_emails}}` | Comma-separated attendee addresses |
+| `{{attendees_table}}` | Markdown table of name, response, and role |
+| `{{attendee_count}}` | Number of people invited (rooms and equipment excluded) |
+| `{{my_response}}` | How *you* replied, when the calendar's email address is configured |
+| `{{required_attendees}}`, `{{optional_attendees}}` | Split by `ROLE` |
+| `{{attendees_accepted}}`, `{{attendees_declined}}`, `{{attendees_tentative}}`, `{{attendees_pending}}` | Split by `PARTSTAT` reply |
+| `{{rooms}}` | Booked rooms and equipment (`CUTYPE=ROOM`/`RESOURCE`) |
+| `{{categories}}`, `{{categories_yaml}}` | Event `CATEGORIES`, plain or as a YAML list |
+| `{{status}}` | `confirmed` or `tentative` |
+| `{{busy_status}}` | `free`, `tentative`, `busy`, `oof`, or `working-elsewhere` |
+| `{{privacy}}` | `public`, `private`, or `confidential` (`CLASS`) |
+| `{{priority}}` | `PRIORITY` (0–9) |
+| `{{recurrence}}` | Human-readable rule, e.g. `Every 2 weeks on Mon, Wed` |
+| `{{recurrence_rule}}` | Raw `RRULE` |
+| `{{is_recurring}}`, `{{is_exception}}` | Whether this is a series occurrence, and whether it was individually moved or edited |
+| `{{reminder_minutes}}` | Lead time of the event's own reminder (`VALARM`) |
+| `{{attachments}}`, `{{attachments_list}}` | `ATTACH` links |
+| `{{created}}`, `{{last_modified}}` | Timestamps from the feed — accept a format string like the date variables |
+| `{{sequence}}` | `SEQUENCE`, bumped by the organizer on every revision |
 | `{{calendar}}` | Calendar display name |
 | `{{uid}}` | ICS UID |
 | `{{dedup_key}}` | Internal dedup key (used in frontmatter) |
 | `{{tags}}` | Calendar's tags as YAML list |
 
-**Templater compatibility**: keep your `<% tp.* %>` tokens in the template. Meetings Plus does its `{{ }}` substitution first; Templater runs second if you enable "Run Templater on new notes".
+`{{meeting_url}}` prefers the Teams link Outlook publishes, then the standard
+`CONFERENCE` property, then a Teams/Zoom/Meet/Webex link found in the location or
+description, and finally any URL in those fields.
+
+Overridden occurrences of a recurring event — the ones you moved or renamed for a
+single week — are read from their own entry, so the title, location, and attendee
+list reflect that occurrence rather than the series.
+
+## Templater
+
+If [Templater](https://github.com/SilentVoid13/Templater) is installed, Meetings Plus can run it on new meeting notes:
+
+1. Enable **Settings → Meetings Plus → Run Templater on new notes**
+2. Put Templater tags in a calendar's template alongside the `{{variables}}`:
+
+```markdown
+## {{title}}
+Prepared on <% tp.date.now("YYYY-MM-DD") %>
+```
+
+Meetings Plus fills in its `{{ }}` variables first; Templater then processes the note.
+
+> **Daily-note destinations:** Templater processes the *whole* daily note, not just the meeting section — any other Templater tags left in that note will run too. Templater runs only when the section is first created; clicking the meeting again just opens the note at its section.
+>
+> In Live Preview the `<!-- mp:section -->` markers around each daily-note section are hidden unless the cursor is on their line; turn off **Hide section markers in the editor** to always show them.
 
 ## Settings
 
@@ -125,12 +175,24 @@ Global options:
 
 - **Refresh interval (minutes)** — how often calendars are fetched in the background
 - **Look-ahead window (days)** — how many days of future meetings to load
+- **Look-back window (days)** — how many days of past meetings you can browse (up to 365). Set to 0 to disable. Some calendars, such as Outlook published links, only include recent history.
 - **Enable pre-meeting notifications** — show a notice before each meeting starts
 - **Notification lead time (minutes)** — how far in advance to notify
 - **Run Templater on new notes** — post-process meeting notes through Templater if installed
 - **Open dashboard on startup** — auto-open the sidebar when Obsidian loads
 
-Per-calendar options live in the calendar editor and cover URL, color, folder, title pattern, tags, template, and which features (standalone notes, daily-note append, all-day filtering) apply.
+Per-calendar options live in the calendar editor and cover URL, color, folder, title pattern, tags, template, and which features (standalone notes, daily-note append) apply.
+
+### Filters
+
+Each calendar can hide events you don't want cluttering the sidebar:
+
+- **Exclude all-day events**
+- **Exclude meetings you declined** — needs **Your email address**, so the plugin can find your own entry in the attendee list. Several addresses can be given, separated by commas, if the account has aliases. Feeds that don't publish attendee replies (many "publish calendar" URLs strip them) leave this with nothing to match, in which case nothing is hidden.
+- **Exclude out-of-office blocks** — events your calendar marks as out of office
+- **Exclude events marked as free** — reminders, birthdays, and anything else that doesn't block time
+
+Filters apply when a feed is parsed, so changing one re-fetches that calendar and takes effect right away. Filtered events are hidden everywhere — sidebar, daily-note list, and pre-meeting notifications.
 
 ![Settings](docs/screenshot-3.png)
 ![Calendar editor](docs/screenshot-4.png)

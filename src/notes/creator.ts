@@ -1,4 +1,4 @@
-import { App, Notice, TFile, normalizePath } from "obsidian";
+import { App, MarkdownView, Notice, TFile, normalizePath } from "obsidian";
 import { moment } from "../util/time";
 import { CalendarConfig, Meeting } from "../types";
 import { renderTemplate, sanitizeFilename } from "./template";
@@ -25,6 +25,24 @@ export async function createOrOpenMeetingNote(
 	if (existing) {
 		await openFile(app, existing, opts.openInNewPane);
 		return existing;
+	}
+
+	// Notes written by 0.5.6 and earlier carry a UTC-dated key, which names the
+	// wrong day for all-day and early-morning events east of UTC. Adopt those
+	// notes and rewrite the key, so this costs a lookup only once per note.
+	const legacyKeyed =
+		meeting.legacyDedupKey === meeting.dedupKey
+			? null
+			: noteIndex.findExistingNoteVerified(meeting.legacyDedupKey);
+	if (legacyKeyed) {
+		await app.fileManager.processFrontMatter(
+			legacyKeyed,
+			(fm: Record<string, unknown>) => {
+				fm["meeting_dedup_key"] = meeting.dedupKey;
+			}
+		);
+		await openFile(app, legacyKeyed, opts.openInNewPane);
+		return legacyKeyed;
 	}
 
 	// Rescheduled-meeting fallback: same UID, different start date.
@@ -126,11 +144,19 @@ async function createStandaloneFile(opts: CreateOptions): Promise<TFile | null> 
 	return file;
 }
 
+const markerSource = (kind: "section" | "section/end", key: string): string =>
+	`<!--\\s*mp:${kind}\\s+dedup=${key}\\s*-->`;
+
 const SECTION_MARKER_RE = (key: string): RegExp =>
 	new RegExp(
-		`<!--\\s*mp:section\\s+dedup=${escapeRegex(key)}\\s*-->[\\s\\S]*?<!--\\s*mp:section/end\\s+dedup=${escapeRegex(key)}\\s*-->`,
+		`${markerSource("section", escapeRegex(key))}[\\s\\S]*?${markerSource("section/end", escapeRegex(key))}`,
 		"m"
 	);
+
+/** Matches a line consisting solely of a start or end section marker. */
+export const SECTION_MARKER_LINE_RE = new RegExp(
+	`^\\s*(?:${markerSource("section", ".+?")}|${markerSource("section/end", ".+?")})\\s*$`
+);
 
 async function appendToDailyNoteSection(
 	opts: CreateOptions
@@ -149,24 +175,50 @@ async function appendToDailyNoteSection(
 	}
 	const { file } = dailyNote;
 
+	const original = await app.vault.read(file);
+	let existing = SECTION_MARKER_RE(meeting.dedupKey).exec(original);
+	if (!existing && meeting.legacyDedupKey !== meeting.dedupKey) {
+		// Sections written by 0.5.6 and earlier carry the UTC-dated key.
+		// Rekey only the two marker lines; the body is left untouched.
+		const legacy = SECTION_MARKER_RE(meeting.legacyDedupKey).exec(original);
+		if (legacy) {
+			const key = escapeRegex(meeting.legacyDedupKey);
+			const rekeyed = legacy[0]
+				.replace(
+					new RegExp(`^${markerSource("section", key)}`),
+					() => `<!-- mp:section dedup=${meeting.dedupKey} -->`
+				)
+				.replace(
+					new RegExp(`${markerSource("section/end", key)}$`),
+					() => `<!-- mp:section/end dedup=${meeting.dedupKey} -->`
+				);
+			await app.vault.modify(
+				file,
+				original.slice(0, legacy.index) +
+					rekeyed +
+					original.slice(legacy.index + legacy[0].length)
+			);
+			existing = legacy;
+		}
+	}
+	if (existing) {
+		const line = original.slice(0, existing.index).split("\n").length - 1;
+		const leaf = app.workspace.getLeaf(opts.openInNewPane ? "tab" : false);
+		await leaf.openFile(file);
+		if (leaf.view instanceof MarkdownView) {
+			const pos = { line, ch: 0 };
+			leaf.view.editor.setCursor(pos);
+			leaf.view.editor.scrollIntoView({ from: pos, to: pos }, true);
+		}
+		return file;
+	}
+
 	const body = stripFrontmatter(
 		renderTemplate(calendar.template, { meeting, calendar })
 	).trim();
 	const sectionBlock = buildSection(meeting.dedupKey, body);
-
-	const original = await app.vault.read(file);
-	const re = SECTION_MARKER_RE(meeting.dedupKey);
-	let next: string;
-	if (re.test(original)) {
-		next = original.replace(re, sectionBlock);
-	} else {
-		const sep =
-			original.length === 0 || original.endsWith("\n") ? "" : "\n";
-		next = `${original}${sep}\n${sectionBlock}\n`;
-	}
-	if (next !== original) {
-		await app.vault.modify(file, next);
-	}
+	const sep = original.length === 0 || original.endsWith("\n") ? "" : "\n";
+	await app.vault.modify(file, `${original}${sep}\n${sectionBlock}\n`);
 
 	if (opts.runTemplater) {
 		try {

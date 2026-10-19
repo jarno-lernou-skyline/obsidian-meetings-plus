@@ -1,4 +1,13 @@
-import { CalendarConfig, TimeFormat } from "./types";
+import {
+	AttendeeStatus,
+	BusyStatus,
+	CalendarConfig,
+	EventPrivacy,
+	EventStatus,
+	GeoPoint,
+	MeetingAttendee,
+	TimeFormat,
+} from "./types";
 import { SETTINGS_VERSION } from "./constants";
 
 export interface MeetingsPlusSettings {
@@ -14,6 +23,7 @@ export interface MeetingsPlusSettings {
 	notificationLeadMinutes: number;
 	runTemplaterOnNewNotes: boolean;
 	openDashboardOnStart: boolean;
+	hideSectionMarkers: boolean;
 	calendars: CalendarConfig[];
 	/** Persisted cache. Keyed by calendarId. */
 	cache: Record<string, PersistedCacheEntry>;
@@ -42,6 +52,33 @@ export interface SerializedMeeting {
 	organizer: string;
 	attendees: string[];
 	meetingUrl: string;
+	/**
+	 * Everything below is absent in caches written by 0.5.6 and earlier. The
+	 * cache is refilled on the next fetch, so missing fields only need safe
+	 * defaults.
+	 */
+	legacyDedupKey?: string;
+	isException?: boolean;
+	organizerEmail?: string;
+	attendeeDetails?: MeetingAttendee[];
+	myResponse?: AttendeeStatus;
+	conferenceUrl?: string;
+	url?: string;
+	categories?: string[];
+	status?: EventStatus;
+	busyStatus?: BusyStatus;
+	privacy?: EventPrivacy;
+	priority?: number | null;
+	sequence?: number;
+	/** ISO strings */
+	created?: string | null;
+	lastModified?: string | null;
+	timezone?: string;
+	recurrenceRule?: string;
+	recurrenceText?: string;
+	geo?: GeoPoint | null;
+	attachments?: string[];
+	reminderMinutes?: number | null;
 }
 
 export const DEFAULT_TEMPLATE = `---
@@ -98,6 +135,10 @@ export function makeDefaultCalendar(
 		noteDestination: "file",
 		appendToDailyNote: false,
 		excludeAllDay: true,
+		myEmail: "",
+		excludeDeclined: false,
+		excludeOutOfOffice: false,
+		excludeFreeTime: false,
 		...overrides,
 	};
 }
@@ -113,6 +154,7 @@ export const DEFAULT_SETTINGS: MeetingsPlusSettings = {
 	notificationLeadMinutes: 5,
 	runTemplaterOnNewNotes: false,
 	openDashboardOnStart: false,
+	hideSectionMarkers: true,
 	calendars: [],
 	cache: {},
 	skippedToday: [],
