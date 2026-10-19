@@ -140,13 +140,14 @@ async function appendToDailyNoteSection(
 		calendar.noteDestination === "daily-note-event-date"
 			? meeting.start
 			: new Date();
-	const file = await ensureDailyNote(app, noteDate);
-	if (!file) {
+	const dailyNote = await ensureDailyNote(app, noteDate);
+	if (!dailyNote) {
 		new Notice(
 			"Could not create or open the daily note. Check the daily notes core plugin settings."
 		);
 		return null;
 	}
+	const { file } = dailyNote;
 
 	const body = stripFrontmatter(
 		renderTemplate(calendar.template, { meeting, calendar })
